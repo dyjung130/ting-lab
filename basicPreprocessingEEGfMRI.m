@@ -1,6 +1,7 @@
-E = load('C:\Users\dyjun\Downloads\temp\sub_0027-mr_0009_eeg_pp.mat');% I think this is EEGLAB format.
+baseDir = '/Users/dennis.jungchildmind.org/OneDrive - Child Mind Institute/bolt2025/dataset_chang/eeg/raw';
+E = load(fullfile(baseDir,"sub_0012-mr_0018_eeg_pp.mat"));% I think this is EEGLAB format.
 %the loaded data have the channel location info in E.EEG.chanlocs.
-
+addpath('lib/');%add library
 %% Convert to FieldTrip format for analysis
 E_ft = struct();
 E_ft.fsample = E.EEG.srate;%sampling rate (@ 250Hz)
@@ -50,7 +51,7 @@ cfg.neighbours   = neighbours; %neighbourhood structure, see FT_PREPARE_NEIGHBOU
 [E_ft_laplace] = ft_scalpcurrentdensity(cfg, E_ft);
 %% Topographical illustration
 %display the top-view coordinate of the EEG
-figure
+figure(1)
 theta = linspace(0, 2*pi, 100); x = cos(theta); y = sin(theta); plot(x,y,'k','linewidth',1); hold on;
 subplot(1,3,1);
 scatter(actualElecPos.pnt(:,1),actualElecPos.pnt(:,2),'or','filled');
@@ -74,6 +75,7 @@ cfg.interactive = 'no';
 cfg.colorbar = 'EastOutside';
 cfg.comment = 'no';
 cfg.gridscale = 200;
+cfg.figure = 1;%add to figure (1)
 E_ft.avg{1} = E_ft.trial{1};
 ft_topoplotER(cfg,E_ft);
 pbaspect([1 1 1]);
@@ -92,6 +94,7 @@ cfg.interactive = 'no';
 cfg.colorbar = 'EastOutside';
 cfg.comment = 'no';
 cfg.gridscale = 200;
+cfg.figure = 1;%add to figure (1)
 E_ft_laplace.avg{1} = E_ft_laplace.trial{1};
 ft_topoplotER(cfg,E_ft_laplace);
 pbaspect([1 1 1]);
@@ -100,7 +103,7 @@ title('EEG, Sensor-space');
 maxClim = max(abs(caxis));
 caxis([-maxClim,maxClim]);
 
-match_clim(ax);
+%match_clim(ax);
 
 %% MRI source localization
 mri = ft_read_mri('C:\Users\dyjun\Downloads\sub_0027-mprage.nii\sub_0027-mprage.nii','dataformat','nifti');
