@@ -1,5 +1,24 @@
-baseDir = '/Users/dennis.jungchildmind.org/OneDrive - Child Mind Institute/bolt2025/dataset_chang/eeg/raw';
-E = load(fullfile(baseDir,"sub_0012-mr_0018_eeg_pp.mat"));% I think this is EEGLAB format.
+baseDir = '/Users/dennis.jungchildmind.org/OneDrive - Child Mind Institute/bolt2025/dataset_chang';%/eeg/raw';
+eegDir = '/eeg/raw/';% EEG
+anatDir = '/anat/raw/';%anatomical MRI
+funcDir = '/func/raw/';%functional MRI
+%% Just sort data based on file names
+anatFiles = dir(fullfile(baseDir,anatDir));
+anatFiles = {anatFiles.name};
+fileIndex = cell2mat(cellfun(@(x) length(regexp(x, '.*_sub_*','match')), anatFiles, 'uni', 0));
+anatFiles = anatFiles(logical(fileIndex));
+anatSubjects = cellfun(@(x) regexp(x,'sub_[0-9]*','match'),anatFiles);% available subjects identified from anat MRI
+%% Now sort EEG data based on the file names obtained from anatomical...yeee
+eegFiles = dir(fullfile(baseDir,eegDir));
+eegFiles = {eegFiles.name};
+%divide into "subject + mr session" 
+fileIndex = cell2mat(cellfun(@(x) length(regexp(x, '.*sub_[0-9]*-*')), eegFiles, 'uni', 0));
+eegFiles = eegFiles(logical(fileIndex));
+eegSubjects = cellfun(@(x) regexp(x,'sub_[0-9]*','match'),eegFiles);%available subjects for EEG (can be more files than the identified number of subjects)
+%%
+i = 1;%eeg file indexs
+s
+E = load(fullfile(baseDir,eegFiles{i}));% I think this is sEEGLAB format.
 %the loaded data have the channel location info in E.EEG.chanlocs.
 addpath('lib/');%add library
 %% Convert to FieldTrip format for analysis
@@ -106,7 +125,16 @@ caxis([-maxClim,maxClim]);
 %match_clim(ax);
 
 %% MRI source localization
-mri = ft_read_mri('C:\Users\dyjun\Downloads\sub_0027-mprage.nii\sub_0027-mprage.nii','dataformat','nifti');
+%first find the subject from the anatomical result (find index)
+matched = find(cellfun(@(x) length(regexp(x,eegSubjects{i})), anatSubjects));%index of the anat mri file
+%check if there is only one file 
+if length(matched) ~= 1
+    warning('There are more than 1 file with the same name.');
+    matched = matched(1); %since it will be identical file (hopefully), just grab one of the file
+end
+
+fileToRead = fullfile(baseDir,anatDir,anatFiles{matched});
+mri = ft_read_mri(fileToRead,'dataformat','nifti');
 cfg           = [];
 cfg.output    = 'brain';
 segmentedmri  = ft_volumesegment(cfg, mri);
@@ -114,6 +142,11 @@ segmentedmri  = ft_volumesegment(cfg, mri);
 cfg = [];
 cfg.method='singleshell';
 vol = ft_prepare_headmodel(cfg, segmentedmri);
+
+%Do you want to change the anatomical labels for the axes [Y, n]? Y
+%What is the anatomical label for the positive X-axis [r, l, a, p, s, i]? r
+%What is the anatomical label for the positive Y-axis [r, l, a, p, s, i]? a
+%What is the anatomical label for the positive Z-axis [r, l, a, p, s, i]? s
 
 save vol vol
 
