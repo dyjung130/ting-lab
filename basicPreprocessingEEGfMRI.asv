@@ -7,8 +7,8 @@
 clear all
 %% check EEG montage
 dirlist = "/Users/dennis.jungchildmind.org/OneDrive - Child Mind Institute/matlab-lib/fieldtrip-20250114/template/electrode/";
-filename = fullfile(dirlist,'standard_1020.elc')
-standard_1020 = ft_read_sens(filename{i});
+filename = fullfile(dirlist,'standard_1020.elc');
+standard_1020 = ft_read_sens(filename);
 
 %% setup directories
 baseDir = '/Users/dennis.jungchildmind.org/OneDrive - Child Mind Institute/bolt2025/dataset_chang_bh';%/eeg/raw';
@@ -21,6 +21,7 @@ anatFiles = {anatFiles.name};
 fileIndex = cell2mat(cellfun(@(x) length(regexp(x, '.*_sub_*','match')), anatFiles, 'uni', 0));
 anatFiles = anatFiles(logical(fileIndex));
 anatSubjects = cellfun(@(x) regexp(x,'sub_[0-9]*','match'),anatFiles);% available subjects identified from anat MRI
+
 %% Now sort EEG data based on the file names obtained from anatomical...yeee
 eegFiles = dir(fullfile(baseDir,eegDir));
 eegFiles = {eegFiles.name};
@@ -48,21 +49,30 @@ for i = 1:length(eegFiles)
     E_ft.hdr.nChans = length(E_ft.label);%number of channels
     E_ft.hdr.label = E_ft.label;%
     E_ft.cfg = struct();
-    %% Using the standard 10-20 template, provided from MNE (
+    %% Using the standard 10-20 template, provided from MNE (FieldTrip), which has the somewhat acutal phyiscal coordinates*
+    %the standard_1020 file is in 'mm'
+    eegLocInd = cellfun(@(x) (cellfun(@(y) strcmpi(x,y),E_ft.label,'uni',0)), standard_1020.label,'uni',0);
+    eegLocInd = find(sum(cell2mat(horzcat(eegLocInd{:}))));
+    standard_1020_mod.chanpos = standard_1020.chanpos(eegLocInd,:);
+    standard_1020_mod.chantype = standard_1020.chantype{eegLocInd};
+    standard_1020_mod.chanunit = standard_1020.chanunit(eegLocInd);
+    standard_1020_mod.elecpos = standard_1020.elecpos(eegLocInd,:);
+    standard_1020_mod.label = standard_1020.label(eegLocInd);%this will narrow down to the 32 channel 10-20 system.
     %% Laplace transform (sensor space)
     %POLHEMUS_ELEC_FILE = 'C:\Users\dyjun\Downloads\w-tdoaprob03\EEG_coordinate\whopper_20211103.txt';
     actualElecPos.label = E_ft.label;%channel labels
     %since last channel is ECG (electrocardiogram), remove it
     actualElecPos.label(end) = [];
-    actualElecPos.pnt = vertcat([E.EEG.chanlocs.X], [E.EEG.chanlocs.Y], [E.EEG.chanlocs.Z])';%transposed
+    %actualElecPos.pnt = vertcat([E.EEG.chanlocs.X], [E.EEG.chanlocs.Y],[E.EEG.chanlocs.Z])';%transposed (model, unit circle)
+    actualElecPos.pnt = standard_1020_mod.chanpos;
     %%Since the montage/layout is from Posterior to Anterior (left to right), rotate -90
     %degrees so that the montage/layout matches the direction of the face and
     %ears in the output figure
 
-    % Create rotation matrix
-    theta = -90; % to rotate 90 counterclockwise
-    R = [cosd(theta) -sind(theta); sind(theta) cosd(theta)];
-    actualElecPos.pnt(:,[1,2]) = actualElecPos.pnt(:,[1,2]) * R;
+    % % Create rotation matrix (only for the model, unit circle)
+    % theta = -90; % to rotate 90 counterclockwise
+    % R = [cosd(theta) -sind(theta); sind(theta) cosd(theta)];
+    % actualElecPos.pnt(:,[1,2]) = actualElecPos.pnt(:,[1,2]) * R;
 
 
 
@@ -86,95 +96,167 @@ for i = 1:length(eegFiles)
     [E_ft_laplace{i}] = ft_scalpcurrentdensity(cfg, E_ft);
 end
 
+%% just try to plot MRI head model with the EEG snenosr
+for i = 1:length(anatFiles)
+    dirName = fullfile(baseDir,anatDir);
+    fileName = anatFiles{i};
+    coregisterMRIHeadmodelWithEEGSensors(dirName,fileName,standard_1020_mod,1);
+end
 
 %% Topographical illustration
 
-% %display the top-view coordinate of the EEG
-% figure(1)
-% theta = linspace(0, 2*pi, 100); x = cos(theta); y = sin(theta); plot(x,y,'k','linewidth',1); hold on;
-% subplot(1,3,1);
-% scatter(actualElecPos.pnt(:,1),actualElecPos.pnt(:,2),'or','filled');
-% text(actualElecPos.pnt(:,1),actualElecPos.pnt(:,2)+0.1,actualElecPos.label);
-% xlim([-1.25 1.25]); ylim([-1.25,1.25]);
-% pbaspect([1 1 1]);
-% xlabel('X Coordinate');
-% ylabel('Y Coordinate');
-% title('EEG Montage');
-%
-% ax = [];
-%
-% %plot raw (processed) eeg
-% ax(1) = subplot(1,3,2);
-% cfg = [];
-% cfg.layout = lay;
-% cfg.trials = 1;
-% cfg.xlim = [0 0];
-% cfg.interpolation = 'V4';
-% cfg.interactive = 'no';
-% cfg.colorbar = 'EastOutside';
-% cfg.comment = 'no';
-% cfg.gridscale = 200;
-% cfg.figure = 1;%add to figure (1)
-% E_ft.avg{1} = E_ft.trial{1};
-% ft_topoplotER(cfg,E_ft);
-% pbaspect([1 1 1]);
-% title('EEG');
-% maxClim = max(abs(caxis));
-% caxis([-maxClim,maxClim]);
-%
-% %plot laplace tranform version
-% ax(2) = subplot(1,3,3);
-% cfg = [];
-% cfg.layout = lay;
-% cfg.trials = 1;
-% cfg.xlim = [0 0];
-% cfg.interpolation = 'V4';
-% cfg.interactive = 'no';
-% cfg.colorbar = 'EastOutside';
-% cfg.comment = 'no';
-% cfg.gridscale = 200;
-% cfg.figure = 1;%add to figure (1)
-% E_ft_laplace.avg{1} = E_ft_laplace.trial{1};
-% ft_topoplotER(cfg,E_ft_laplace);
-% pbaspect([1 1 1]);
-% title('EEG, Sensor-space');
-%
-% maxClim = max(abs(caxis));
-% caxis([-maxClim,maxClim]);
-%
-% %match_clim(ax);
+%display the top-view coordinate of the EEG
+figure(1)
+theta = linspace(0, 2*pi, 100); x = cos(theta); y = sin(theta); plot(x,y,'k','linewidth',1); hold on;
+subplot(1,3,1);
+scatter(actualElecPos.pnt(:,1),actualElecPos.pnt(:,2),'or','filled');
+text(actualElecPos.pnt(:,1),actualElecPos.pnt(:,2)+0.1,actualElecPos.label);
+%xlim([-1.25 1.25]); ylim([-1.25,1.25]);
+pbaspect([1 1 1]);
+xlabel('X Coordinate');
+ylabel('Y Coordinate');
+title('EEG Montage');
+
+ax = [];
+
+%plot raw (processed) eeg
+ax(1) = subplot(1,3,2);
+cfg = [];
+cfg.layout = lay;
+cfg.trials = 1;
+cfg.xlim = [0 0];
+cfg.interpolation = 'V4';
+cfg.interactive = 'no';
+cfg.colorbar = 'EastOutside';
+cfg.comment = 'no';
+cfg.gridscale = 200;
+cfg.figure = 1;%add to figure (1)
+E_ft.avg{1} = E_ft.trial{1};
+ft_topoplotER(cfg,E_ft);
+pbaspect([1 1 1]);
+title('EEG');
+maxClim = max(abs(caxis));
+caxis([-maxClim,maxClim]);
+
+%plot laplace tranform version
+ax(2) = subplot(1,3,3);
+cfg = [];
+cfg.layout = lay;
+cfg.trials = 1;
+cfg.xlim = [0 0];
+cfg.interpolation = 'V4';
+cfg.interactive = 'no';
+cfg.colorbar = 'EastOutside';
+cfg.comment = 'no';
+cfg.gridscale = 200;
+cfg.figure = 1;%add to figure (1)
+E_ft_laplace{1}.avg{1} = E_ft_laplace{1}.trial{1};
+ft_topoplotER(cfg,E_ft_laplace{1});
+pbaspect([1 1 1]);
+title('EEG, Sensor-space');
+
+maxClim = max(abs(caxis));
+caxis([-maxClim,maxClim]);
+
+%match_clim(ax);
 
 %% MRI source localization
-% The data do not have a digitized coordinate of EEG 031025 DJ
 % %first find the subject from the anatomical result (find index)
 matched = find(cellfun(@(x) length(regexp(x,eegSubjects{i})), anatSubjects));%index of the anat mri file
+
 %check if there is only one file
 if length(matched) ~= 1
     warning('There are more than 1 file with the same name.');
     matched = matched(1); %since it will be identical file (hopefully), just grab one of the file
 end
 
-fileToRead = fullfile(baseDir,anatDir,anatFiles{matched});
-mri = ft_read_mri(fileToRead,'dataformat','nifti');
-% cfg           = [];
-% cfg.output    = 'brain';
-% segmentedmri  = ft_volumesegment(cfg, mri);
-% %save segmentedmri segmentedmri
-% cfg = [];
-% cfg.method='singleshell';
-% vol = ft_prepare_headmodel(cfg, segmentedmri);
-%
-% %Do you want to change the anatomical labels for the axes [Y, n]? Y
-% %What is the anatomical label for the positive X-axis [r, l, a, p, s, i]? r
-% %What is the anatomical label for the positive Y-axis [r, l, a, p, s, i]? a
-% %What is the anatomical label for the positive Z-axis [r, l, a, p, s, i]? s
-%
-% save vol vol
-%
-% %vol = ft_convert_units(vol, 'cm');
-% figure;
-% ft_plot_headmodel(vol);%results in mm
+%load the headmodel from coregisterMRIHeadmodelWithEEGSensors.m function
+dirHeadmodels = dir('mri');
+allHeadmodels =  {dirHeadmodels.name};
+headmodel = cellfun(@(x) regexp(x,strcat('.*',anatSubjects{matched},'.*'),'match'),allHeadmodels,'uni',0);
+headmodel = headmodel{~cellfun(@isempty,headmodel)};
+%headmodel = load(fullfile('mri',headmodel{1}));
+headmodel = load(fullfile('mri','mriModel_51728393_sub_0020-mprage'));
+headmodel = headmodel.vol;
 
+cfg = [];
+cfg.elec = standard_1020_mod;
+cfg.headmodel = headmodel;
+cfg.reducerank = 3;
+cfg.resolution = 2;
+cfg.sourcemodel.unit = 'mm';
+sourcemodel = ft_prepare_leadfield(cfg);
+%%
+set(0,'DefaultFigureWindowStyle','docked')
+%shorten data first (for testing)
+cfg = [];
+cfg.latency = [600 700];%in seconds
+cfg.channel = ft_channelselection('eeg',E_ft);% just grab the EEG channels (no ECG..!)
+E_temp = ft_selectdata(cfg,E_ft);
+
+%re-reference to the average of the channels
+cfg = [];
+cfg.channel = 'all';
+cfg.reref = 'yes';
+cfg.refmethod = 'avg';%common 
+cfg.refchannel = 'all';
+E_temp = ft_preprocessing(cfg,E_temp);
+
+%for DICS: Dynamical Imaging of Coherent Sources (DICS) (Gross et al. 2001)
+%for (oscillatory) power
+cfg = [];
+cfg.method    = 'mtmfft';
+cfg.output    = 'powandcsd';
+cfg.tapsmofrq = 4;
+cfg.foilim    = [2 30];
+freqPost = ft_freqanalysis(cfg, E_temp);
+
+freqPost.elec = standard_1020_mod;
+% %for LCMV: Linearly Constrained Minimum Variance (LCMV) and the estimates are calculated in the time domain (van Veen et al., 1997).
+% %for amplitude
+% cfg = [];
+% cfg.covariance = 'yes';
+% E_timelock = ft_timelockanalysis(cfg,E_temp);
+% %for quick plot
+% %figure, plot(E_timelock.time, E_timelock.avg);
+
+%%
+cfg              = [];
+%cfg.method       = 'lcmv';
+cfg.method = 'dics';
+cfg.frequency    = 10;%for DICS
+cfg.sourcemodel  = sourcemodel;
+cfg.headmodel    = headmodel;
+cfg.dics.projectnoise = 'yes';
+cfg.dics.lambda = 1;
+%cfg.lcmv.keepfilter  = 'yes';
+%cfg.lcmv.fixedori    = 'yes'; % project on axis of most variance using SVD
+sourcePost_nocon = ft_sourceanalysis(cfg, freqPost);
+
+%%
+fileToRead = fullfile(dirName,fileName);
+mri = ft_read_mri(fileToRead,'dataformat','nifti');
+mri = ft_convert_coordsys(mri,'mni','feedback','no');
+cfg = [];
+mri = ft_volumereslice(cfg, mri);
+%%
+cfg            = [];
+cfg.downsample = 2;
+cfg.parameter  = 'pow';
+sourcePostInt_nocon  = ft_sourceinterpolate(cfg, sourcePost_nocon, mri);
+%% spatially noarmalize the anatomy and functional data to MNI coordinates?
+cfg = [];
+cfg.nonlinear = 'no';
+sourceDiffIntNorm = ft_volumenormalise(cfg, sourcePostInt_nocon);
+%%
+cfg              = [];
+cfg.method       = 'ortho';
+cfg.funparameter = 'pow';
+%cfg.funcolorlim = [0.0 1.2];
+%cfg.opacitymap = [0.0 1.2];
+cfg.opacitymap = 'rampup'
+cfg.maskparameter = cfg.funparameter;
+ft_sourceplot(cfg, sourceDiffIntNorm);
 %% FOOOF analysis on a single representative channel
 set(0,'DefaultFigureWindowStyle','docked')
 targetChannelIndex = 20;

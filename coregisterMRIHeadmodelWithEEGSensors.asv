@@ -10,26 +10,34 @@ mri = ft_convert_coordsys(mri,'mni','feedback','no');
 %What is the anatomical label for the positive Z-axis [r, l, a, p, s, i]? s
 %Is the origin of the coordinate system at the a(nterior commissure), i(nterauricular), s(scanner origin), n(ot a landmark)? n
 
-%segment it!
+%segment it: voxels of MRI are classified in three different tissue types:
+%'brain', 'skull', and 'scalp'
 cfg           = [];
 cfg.output    = {'brain','skull','scalp'};
 segmentedmri  = ft_volumesegment(cfg, mri);
+%check data
+ft_checkdata(segmentedmri, 'feedback', 'yes');
+%mesh it
+cfg = [];
+cfg.tissue = {'brain','skull','scalp'};
+cfg.numvertices = [3000,2000,1000];
+mesh = ft_prepare_mesh(cfg,segmentedmri);
+
 %save segmentedmri segmented mri
 cfg = [];
-cfg.method = 'singleshell';
-vol = ft_prepare_headmodel(cfg, segmentedmri);
+cfg.method = 'dipoli';%singleshell for display only? it doesn't work for EEG source localize
+vol = ft_prepare_headmodel(cfg, mesh);
 vol = ft_convert_units(vol, 'mm');% I think the unit is already in mm but just in case it is not mm, do conversion
 
 saveName = strsplit(fileName,'.');
 saveName= saveName{1};
-save(strcat('mriModel_',saveName),'vol','cfg');
+save(fullfile('mri',strcat('mriModel_',saveName)),'vol','cfg');
 
 if plotModel == 1
     figure;
     ft_plot_sens(eegSensorTemplate);
     hold on;
     ft_plot_headmodel(vol);%results in mm
-    title(fileName);
+    title(saveName,'interpreter','none');
 end
-
 end
