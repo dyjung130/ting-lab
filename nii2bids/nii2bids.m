@@ -1,7 +1,11 @@
 %
+clear all;
+%%
 baseDir = '/Users/dennis.jungchildmind.org/OneDrive - Child Mind Institute/bolt2025/bidsformat/dataset_chang';
 bidsDir = fullfile(baseDir,'bidsit');%output directory where bids format will be applied 
-dataFolders = {'anat','eeg','func','physio'};%folders for organization
+dataFolders = {'anat','func'};%,'physio'};%folders for organization
+taskName = strcat('_task-rest_');
+bidsPostfix = {'T1w','bold'};%,'physio'};%
 subfolder = 'raw';%if there is a subfolder, if not remove it
 sessionPrefixRegex = 'mr_[0-9]*';%session name prefix is "mr" in this case
 %create a top-level folder
@@ -35,6 +39,7 @@ end
 anatInd = find(cell2mat(cellfun(@(x) regexp(x,'anat'), dataFolders,'uni',0)));
 %extract subject ID from the folder names 
 subjectID = cellfun(@(x) regexp(x,'sub_[0-9]*','match'),allFiles{anatInd});
+subjectIDbids = cellfun(@(x) strrep(x,'_','-'),subjectID,'uni',0);
 %check if there are any dupes
 if sum(cell2mat(cellfun(@(x) cellfun(@(y) strcmpi(x,y), subjectID),subjectID,'uni',0)'),'all') ~= length(subjectID)
     error('Duplicate subjects exist');
@@ -42,7 +47,8 @@ end
 
 % iterate each subject
 for i = 1:length(subjectID)
-    subjectFolder = fullfile(bidsDir,subjectID{i});
+    %new subject folder will be name in "sub-" with a hyphen
+    subjectFolder = fullfile(bidsDir,subjectIDbids{i});
     %generate a session folder (in Bolt et al. 2024 data, it will be "mr") before data folders
     checkSessionPrefix = [];
     %%
@@ -81,12 +87,24 @@ for i = 1:length(subjectID)
             %*should write elseif for the case (e.g., 3 files, 2 files from 1 session and 1 file from another session).
         end   
     end
+    %% check if there are any files associated with anatomy file
+    %if only anatomy file, the length of checksessionPrefix should be 1
+    
+    if length(checkSessionPrefix) == 1
+        %if the length equals to 1, just go to next file
+        continue;
+    end
+
     %% then check if I should create the session folder here
     [~,I] = max(cellfun(@(y) sum(cellfun(@length,y)),checkSessionPrefix));%grab the one with the most session names (since we need to create based on that?)
     
-    sessionFolders2create = checkSessionPrefix{I};
-    sessionFolders2create = [sessionFolders2create{:}];
-    
+    sessionNumbers = checkSessionPrefix{I};
+    sessionNumbers = [sessionNumbers{:}];
+    sessionNumbers= cellfun(@(x) regexp(x,'[0-9]*','match'), sessionNumbers);
+
+    %make it BIDS format
+    sessionFolders2create = cellfun(@(x) strcat('ses-',x),sessionNumbers,'uni',0);
+
     if isempty(sessionFolders2create)
         continue;
         %('Session folder for creation is empty...!');
@@ -126,18 +144,79 @@ for i = 1:length(subjectID)
             %are one anat for other data files).
 
             files2move = fileList(fileInd);%file to move
+
+            
             if ~strcmpi('anat',dataFolders{ii})
-                ind2move = find(cellfun(@(x) length(regexp(x,sessionFolders2create{sf})), files2move));
+                ind2move = find(cellfun(@(x) length(regexp(x,sessionNumbers{sf})), files2move));
                 files2move = files2move(ind2move);
             else
                 files2move = files2move(1);%if "anat" just the first file (for this dataset specifically)
             end
             
-            cellfun(@(x) copyfile(fullfile(moveFrom,x),moveTo), files2move, 'uni',0);%move the file from the original directory to destination
 
+            %just check echo number using lookbehind assertion (?<=echo)
+            echoNum =  cellfun(@(x) regexp(x,'(?<=echo)[0-9]*','match'), files2move,'uni',0);
+            fileExtension = cell2mat(regexp(files2move{1},'(\.mat|\.nii\.gz)$','match'));
+
+            if logical(sum(cellfun(@isempty,echoNum)))
+                newFileName = {strcat(subjectIDbids{i},'_',sessionFolders2create{sf},taskName,bidsPostfix{ii})};
+            else
+                %add echo number here
+                newFileName = cellfun(@(x) strcat(subjectIDbids{i},'_',sessionFolders2create{sf},taskName,'echo-',num2str(x{1}),'_',bidsPostfix{ii}),...
+                    echoNum,'uni',0);
+            end
+            
+            dataFileName = cellfun(@(x) strcat(x,fileExtension), newFileName, 'uni',0);
+            jsonFileName = cellfun(@(x) strcat(x,'.json'), newFileName, 'uni',0);
+            
+            %(1) save the data
+            cellfun(@(x,y) copyfile(fullfile(moveFrom,x),fullfile(moveTo,y)), files2move,dataFileName, 'uni',0);%move the file from the original directory to destination
+            %(2) then save JSON sidecar corresponding to the saved data
+            cellfun(@(x) saveJsonFile(moveTo,x), jsonFileName);
         end
     
     end
     
 end
 
+
+%
+function saveJsonFile(moveTo,jsonFileName)
+if ~exist(fullfile(moveTo,jsonFileName),'file')
+    fid = fopen(fullfile(moveTo,jsonFileName),'w');
+    S = struct();%json file
+    S.TaskName = cell2mat(regexp(jsonFileName,'(?<=task-).[a-zA-Z]*','match'));
+    S.Manufacturer = "Siemens";
+    S.ManufacturersModelName = "Avanto";
+    S.MagneticFieldStrength = 3;
+    S.RepetitionTime = 2.1;
+    echoNum = cell2mat(regexp(jsonFileName,'(?<=echo-).[0-9]*','match'));
+    
+    if ~isempty(echoNum)
+        echoNum = str2num(echoNum);
+    end
+        
+    echoTime = 1;
+    if echoNum == 1
+        echoTime = 0.013;%second
+    elseif echoNum == 2
+        echoTime = 0.0294;%second
+    elseif echoNum == 3
+        echoTime = 0.0457;%second
+    else
+        disp("No echo time, likely not BOLD")
+    end
+
+    S.EchoTime = echoTime;
+    S.FlipAngle = 75;
+    S.PhaseEncodingDirection = "j-";
+    S.liceEncodingDirection = "k";
+    S.SliceTiming = [0.07, 0.21, 0.35, 0.49, 0.63, 0.77, 0.91, 1.05, 1.19,...
+                     1.33, 1.47, 1.61, 1.75, 1.89, 2.03, 0, 0.14, 0.28, 0.42,...
+                     0.56, 0.70, 0.84, 0.98, 1.12, 1.26, 1.4, 1.54, 1.68, 1.82, 1.96];
+
+    encodedJSON = jsonencode(S);
+    fprintf(fid,encodedJSON);
+    fclose('all');
+end
+end
